@@ -1,21 +1,17 @@
-C_SOURCES = $(wildcard matrix/*.c neural/*.c util/*.c *.c)
-HEADERS = $(wildcard matrix/*.h neural/*.h util/*.h *.h)
-OBJ = ${C_SOURCES:.c=.o}
-CFLAGS = 
+CC = gcc
+CFLAGS = -Wall -Wextra -pthread
+LDFLAGS = -lm -lrt
 
-MAIN = main
-CC = /usr/bin/gcc
-LINKER = /usr/bin/ld
+SRC = $(wildcard matrix/*.c neural/*.c util/*.c *.c)
+OBJ = $(SRC:.c=.o)
 
-run: ${MAIN}
-	./${MAIN}
+all: main
 
-main: ${OBJ}
-	${CC} ${CFLAGS} $^ -o $@ -lm
-
-# Generic rules
-%.o: %.c ${HEADERS}
-	${CC} ${CFLAGS} -c $< -o $@ -lm
+main: $(OBJ)
+	$(CC) $(CFLAGS) $(OBJ) -o main $(LDFLAGS)
 
 clean:
-	rm matrix/*.o *.o neural/*.o util/*.o ${MAIN}
+	rm -f matrix/*.o neural/*.o util/*.o *.o main
+
+run: main
+	./main

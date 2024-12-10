@@ -1,122 +1,137 @@
-#include "ops.h"
-#include <stdlib.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <pthread.h>
 
-#define NUM_THREADS 4
+typedef struct {
+    double** entries;
+    int rows;
+    int cols;
+} Matrix;
 
-int check_dimensions(Matrix *m1, Matrix *m2) {
-	if (m1->rows == m2->rows && m1->cols == m2->cols) return 1;
-	return 0;
+typedef struct {
+    int id;
+    int row_start;
+    int row_end;
+    Matrix* a;
+    Matrix* b;
+    Matrix* result;
+    Matrix* m;
+} Task;
+
+void* multiply_task(void* arg) {
+    Task* task = (Task*)arg;
+    for (int i = task->row_start; i < task->row_end; i++) {
+        for (int j = 0; j < task->b->cols; j++) {
+            task->result->entries[i][j] = 0;
+            for (int k = 0; k < task->a->cols; k++) {
+                task->result->entries[i][j] += task->a->entries[i][k] * task->b->entries[k][j];
+            }
+        }
+    }
+    return NULL;
 }
 
-Matrix* multiply(Matrix *m1, Matrix *m2) {
-	if (check_dimensions(m1, m2)) {
-		Matrix *m = matrix_create(m1->rows, m1->cols);
-#		pragma omp parallel for num_threads(NUM_THREADS) collapse(2)
-		for (int i = 0; i < m1->rows; i++) {
-			for (int j = 0; j < m2->cols; j++) {
-				m->entries[i][j] = m1->entries[i][j] * m2->entries[i][j];
-			}
-		}
-		return m;
-	} else {
-		printf("Dimension mistmatch multiply: %dx%d %dx%d\n", m1->rows, m1->cols, m2->rows, m2->cols);
-		exit(1);
-	}
+void matrix_multiply_parallel(Matrix* a, Matrix* b, Matrix* result, int ntasks) {
+    pthread_t threads[ntasks];
+    Task tasks[ntasks];
+    int rows_per_task = a->rows / ntasks;
+
+    for (int i = 0; i < ntasks; i++) {
+        int row_start = i * rows_per_task;
+        int row_end = (i == ntasks - 1) ? a->rows : row_start + rows_per_task;
+
+        tasks[i] = (Task){ .id = i, .row_start = row_start, .row_end = row_end, .a = a, .b = b, .result = result };
+        pthread_create(&threads[i], NULL, multiply_task, &tasks[i]);
+    }
+
+    for (int i = 0; i < ntasks; i++) {
+        pthread_join(threads[i], NULL);
+    }
 }
 
-Matrix* add(Matrix *m1, Matrix *m2) {
-	if (check_dimensions(m1, m2)) {
-		Matrix *m = matrix_create(m1->rows, m1->cols);
-#		pragma omp parallel for num_threads(NUM_THREADS) collapse(2)
-		for (int i = 0; i < m1->rows; i++) {
-			for (int j = 0; j < m2->cols; j++) {
-				m->entries[i][j] = m1->entries[i][j] + m2->entries[i][j];
-			}
-		}
-		return m;
-	} else {
-		printf("Dimension mistmatch add: %dx%d %dx%d\n", m1->rows, m1->cols, m2->rows, m2->cols);
-		exit(1);
-	}
+void* add_task(void* arg) {
+    Task* task = (Task*)arg;
+    for (int i = task->row_start; i < task->row_end; i++) {
+        for (int j = 0; j < task->a->cols; j++) {
+            task->result->entries[i][j] = task->a->entries[i][j] + task->b->entries[i][j];
+        }
+    }
+    return NULL;
 }
 
-Matrix* subtract(Matrix *m1, Matrix *m2) {
-	if (check_dimensions(m1, m2)) {
-		Matrix *m = matrix_create(m1->rows, m1->cols);
-#		pragma omp parallel for num_threads(NUM_THREADS) collapse(2)
-		for (int i = 0; i < m1->rows; i++) {
-			for (int j = 0; j < m2->cols; j++) {
-				m->entries[i][j] = m1->entries[i][j] - m2->entries[i][j];
-			}
-		}
-		return m;
-	} else {
-		printf("Dimension mistmatch subtract: %dx%d %dx%d\n", m1->rows, m1->cols, m2->rows, m2->cols);
-		exit(1);
-	}
+void matrix_add_parallel(Matrix* a, Matrix* b, Matrix* result, int ntasks) {
+    pthread_t threads[ntasks];
+    Task tasks[ntasks];
+    int rows_per_task = a->rows / ntasks;
+
+    for (int i = 0; i < ntasks; i++) {
+        int row_start = i * rows_per_task;
+        int row_end = (i == ntasks - 1) ? a->rows : row_start + rows_per_task;
+
+        tasks[i] = (Task){ .id = i, .row_start = row_start, .row_end = row_end, .a = a, .b = b, .result = result };
+        pthread_create(&threads[i], NULL, add_task, &tasks[i]);
+    }
+
+    for (int i = 0; i < ntasks; i++) {
+        pthread_join(threads[i], NULL);
+    }
 }
 
-Matrix* apply(double (*func)(double), Matrix* m) {
-	Matrix *mat = matrix_copy(m);
-#	pragma omp parallel for num_threads(NUM_THREADS) collapse(2)
-	for (int i = 0; i < m->rows; i++) {
-		for (int j = 0; j < m->cols; j++) {
-			mat->entries[i][j] = (*func)(m->entries[i][j]);
-		}
-	}
-	return mat;
+void* subtract_task(void* arg) {
+    Task* task = (Task*)arg;
+    for (int i = task->row_start; i < task->row_end; i++) {
+        for (int j = 0; j < task->a->cols; j++) {
+            task->result->entries[i][j] = task->a->entries[i][j] - task->b->entries[i][j];
+        }
+    }
+    return NULL;
 }
 
-Matrix* dot(Matrix *m1, Matrix *m2) {
-	if (m1->cols == m2->rows) {
-		Matrix *m = matrix_create(m1->rows, m2->cols);
-#		pragma omp parallel for num_threads(NUM_THREADS) collapse(2)
-		for (int i = 0; i < m1->rows; i++) {
-			for (int j = 0; j < m2->cols; j++) {
-				double sum = 0;
-				for (int k = 0; k < m2->rows; k++) {
-					sum += m1->entries[i][k] * m2->entries[k][j];
-				}
-				m->entries[i][j] = sum;
-			}
-		}
-		return m;
-	} else {
-		printf("Dimension mistmatch dot: %dx%d %dx%d\n", m1->rows, m1->cols, m2->rows, m2->cols);
-		exit(1);
-	}
+void matrix_subtract_parallel(Matrix* a, Matrix* b, Matrix* result, int ntasks) {
+    pthread_t threads[ntasks];
+    Task tasks[ntasks];
+    int rows_per_task = a->rows / ntasks;
+
+    for (int i = 0; i < ntasks; i++) {
+        int row_start = i * rows_per_task;
+        int row_end = (i == ntasks - 1) ? a->rows : row_start + rows_per_task;
+
+        tasks[i] = (Task){ .id = i, .row_start = row_start, .row_end = row_end, .a = a, .b = b, .result = result };
+        pthread_create(&threads[i], NULL, subtract_task, &tasks[i]);
+    }
+
+    for (int i = 0; i < ntasks; i++) {
+        pthread_join(threads[i], NULL);
+    }
 }
 
-Matrix* scale(double n, Matrix* m) {
-	Matrix* mat = matrix_copy(m);
-#	pragma omp parallel for num_threads(NUM_THREADS) collapse(2)
-	for (int i = 0; i < m->rows; i++) {
-		for (int j = 0; j < m->cols; j++) {
-			mat->entries[i][j] *= n;
-		}
-	}
-	return mat;
+void* transpose_task(void* arg) {
+    Task* task = (Task*)arg;
+    for (int i = task->row_start; i < task->row_end; i++) {
+        for (int j = i + 1; j < task->m->cols; j++) {
+            double temp = task->m->entries[i][j];
+            task->m->entries[i][j] = task->m->entries[j][i];
+            task->m->entries[j][i] = temp;
+        }
+    }
+    return NULL;
 }
 
-Matrix* addScalar(double n, Matrix* m) {
-	Matrix* mat = matrix_copy(m);
-#	pragma omp parallel for num_threads(NUM_THREADS) collapse(2)
-	for (int i = 0; i < m->rows; i++) {
-		for (int j = 0; j < m->cols; j++) {
-			mat->entries[i][j] += n;
-		}
-	}
-	return mat;
+void matrix_transpose_parallel(Matrix* m, int ntasks) {
+    pthread_t threads[ntasks];
+    Task tasks[ntasks];
+    int rows_per_task = m->rows / ntasks;
+
+    for (int i = 0; i < ntasks; i++) {
+        int row_start = i * rows_per_task;
+        int row_end = (i == ntasks - 1) ? m->rows : row_start + rows_per_task;
+
+        tasks[i] = (Task){ .id = i, .row_start = row_start, .row_end = row_end, .m = m };
+        pthread_create(&threads[i], NULL, transpose_task, &tasks[i]);
+    }
+
+    for (int i = 0; i < ntasks; i++) {
+        pthread_join(threads[i], NULL);
+    }
 }
 
-Matrix* transpose(Matrix* m) {
-	Matrix* mat = matrix_create(m->cols, m->rows);
-#	pragma omp parallel for num_threads(NUM_THREADS) collapse(2)
-	for (int i = 0; i < m->rows; i++) {
-		for (int j = 0; j < m->cols; j++) {
-			mat->entries[j][i] = m->entries[i][j];
-		}
-	}
-	return mat;
-}
