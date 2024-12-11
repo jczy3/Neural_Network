@@ -5,7 +5,7 @@
 
 #define NUM_THREADS 4
 
-// Worker functions for each type of matrix operation
+// Operation functions using threading
 void* dot_worker(void* arg) {
     Task* task = (Task*) arg;
     for (int i = task->id; i < task->result->rows; i += NUM_THREADS) {
@@ -80,7 +80,6 @@ void* scale_worker(void* arg) {
     return NULL;
 }
 
-// Parallel runner functions for each operation
 Matrix* dot_runner(Matrix *m1, Matrix *m2) {
     Matrix *result = matrix_create(m1->rows, m2->cols);
     pthread_t threads[NUM_THREADS];
